@@ -1,0 +1,196 @@
+#symbiont_meth_setup.txt
+
+###########################################
+############# PREPARE GENOMES #############
+###########################################
+#for each symbiont genome, download it and reduce to only 
+#scaffolds > 1Kb in length
+
+#---- clade A ----#
+cd cladeA_reference_genome/
+wget http://smic.reefgenomics.org/download/Smic.genome.scaffold.final.fa.gz
+wget http://smic.reefgenomics.org/download/Smic.genome.annotation.gff3.gz
+gunzip *.gz
+
+#remove short scaffolds and standardize names
+GENOME=Smic.genome.scaffold.final.fa
+fasta_sequence_characters.py -fa $GENOME > scaffLengths.txt
+awk '{if ($2 > 1000)
+	print $1}' scaffLengths.txt > longerThan1kb.txt
+subset_fastaV2.py -fa $GENOME  -i longerThan1kb.txt -o cladeA_genome_longerThan1Kb.fasta 
+sed -i 's/>Smic./>cladeA_/' cladeA_genome_longerThan1Kb.fasta
+
+#---- clade B ----#
+cd cladeB_reference_genome/
+wget https://ftp.ncbi.nlm.nih.gov/genomes/all/GCA/000/507/305/GCA_000507305.1_ASM50730v1/GCA_000507305.1_ASM50730v1_genomic.fna.gz
+gunzip *.gz
+
+#remove short scaffolds and standardize names
+GENOME=GCA_000507305.1_ASM50730v1_genomic.fna
+fasta_sequence_characters.py -fa $GENOME > scaffLengths.txt
+awk '{if ($2 > 1000)
+	print $1}' scaffLengths.txt > longerThan1kb.txt
+subset_fastaV2.py -fa $GENOME -i longerThan1kb.txt -o cladeB_genome_longerThan1Kb.fasta
+sed -i 's/>/>cladeB_/' cladeB_genome_longerThan1Kb.fasta
+
+#---- clade C ----#
+
+cd cladeC_reference_genome/
+#get files from here: https://cloudstor.aarnet.edu.au/plus/index.php/s/6yziMf2ygWjGu0L
+#(had to download to PC and send)
+gunzip *.gz
+
+#remove short scaffolds and standardize names
+GENOME=SymbC1.Genome.Scaffolds.fasta
+fasta_sequence_characters.py -fa $GENOME > scaffLengths.txt
+awk '{if ($2 > 1000)
+	print $1}' scaffLengths.txt > longerThan1kb.txt
+subset_fastaV2.py -fa $GENOME -i longerThan1kb.txt -o cladeC_genome_longerThan1Kb.fasta
+sed -i 's/>SymbC1./>cladeC_/' cladeC_genome_longerThan1Kb.fasta
+
+#---- clade D ----#
+cd cladeD_reference_genome/
+#get the reference from here: https://drive.google.com/open?id=1Bpy1I0_m-oIx08kwM5kHTWbPSW9CmNNH
+
+#remove short scaffolds and standardize names
+GENOME=Dtrenchii_assembly_v2.fasta
+fasta_sequence_characters.py -fa $GENOME > scaffLengths.txt
+awk '{if ($2 > 1000)
+	print $1}' scaffLengths.txt > longerThan1kb.txt
+subset_fastaV2.py -fa $GENOME -i longerThan1kb.txt -o cladeD_genome_longerThan1Kb.fasta
+sed -i 's/>Qfrac65.megabubbles.600m.megabubbles_/>cladeD_/' cladeD_genome_longerThan1Kb.fasta
+
+
+#----- CLADE ABCD ------#
+#This one just for getting proportions
+
+cd ABC_cat_genome_reference
+ln -s ../cladeA_reference_genome/cladeA_genome_longerThan1Kb.fasta .
+ln -s ../cladeB_reference_genome/cladeB_genome_longerThan1Kb.fasta .
+ln -s ../cladeC_reference_genome/cladeC_genome_longerThan1Kb.fasta .
+ln -s ../cladeD_reference_genome/cladeD_genome_longerThan1Kb.fasta .
+cat cladeA_genome_longerThan1Kb.fasta cladeB_genome_longerThan1Kb.fasta cladeC_genome_longerThan1Kb.fasta cladeD_genome_longerThan1Kb.fasta > cladeABCD_genomes_longerThan1Kb.fasta
+
+GENOME_FOLDER=/work/02260/grovesd/lonestar/ABCD_cat_genome_reference
+echo "\
+GENOME_FOLDER=/work/02260/grovesd/lonestar/ABCD_cat_genome_reference
+GENOME_PATH=${GENOME_FOLDER}/cladeABCD_genomes_longerThan1Kb.fasta" > /work/02260/grovesd/lonestar/myReferences/cladeABCD_genomes_longerThan1Kb.sh
+
+
+#----- AIPTASIA-CLADE A ------#
+cd aiptasia_cladeA_reference
+cat ../aiptasia_genome/GCA_001417965.1_Aiptasia_genome_1.1_genomic.fasta ../cladeA_reference_genome/cladeA_genome_longerThan1Kb.fasta > aiptasia_cladeA_genomes.fasta
+
+GENOME_FOLDER=/work/02260/grovesd/lonestar/aiptasia_cladeA_reference
+echo "\
+GENOME_FOLDER=/work/02260/grovesd/lonestar/aiptasia_cladeA_reference
+GENOME_PATH=${GENOME_FOLDER}/aiptasia_cladeA_genomes.fasta" > /work/02260/grovesd/lonestar/myReferences/aiptasia_cladeA_reference.sh
+
+
+#----- AIPTASIA-CLADE B ------#
+cd aiptasia_cladeB_reference
+cat ../aiptasia_genome/GCA_001417965.1_Aiptasia_genome_1.1_genomic.fasta ../cladeA_reference_genome/cladeA_genome_longerThan1Kb.fasta > aiptasia_cladeA_genomes.fasta
+
+GENOME_FOLDER=/work/02260/grovesd/lonestar/aiptasia_cladeB_reference
+echo "\
+GENOME_FOLDER=/work/02260/grovesd/lonestar/aiptasia_cladeB_reference
+GENOME_PATH=${GENOME_FOLDER}/aiptasia_cladeB_genomes.fasta" > /work/02260/grovesd/lonestar/myReferences/aiptasia_cladeB_reference.sh
+
+
+#----- STYLOPHORA-CLADE A ------#
+cd stylophora_cladeA_reference
+cat ../stylophora_pistillata_genome/Spis.genome.scaffold.final.fa ../cladeA_reference_genome/cladeA_genome_longerThan1Kb.fasta > stylophora_cladeA_genomes.fasta
+
+GENOME_FOLDER=/work/02260/grovesd/lonestar/stylophora_cladeA_reference
+echo "\
+GENOME_FOLDER=/work/02260/grovesd/lonestar/stylophora_cladeA_reference
+GENOME_PATH=${GENOME_FOLDER}/stylophora_cladeA_genomes.fasta" > /work/02260/grovesd/lonestar/myReferences/stylophora_cladeA_genomes.sh
+
+#----- AMILLEPORA-CLADE C ------#
+cd Amil_Zach_Fullers_v2.00_cladeC_reference
+
+#build concatenated reference
+cat ../Amil_Zach_Fullers_v2.00/Amil.v2.00.chrs.fasta ../cladeC_reference_genome/cladeC_genome_longerThan1Kb.fasta > Amil.v2.00chrs_cladeC_genomes.fasta
+
+#make concatenated window files (see MAKING WINDOWS below)
+
+#make a genome calling file
+GENOME_FOLDER=/work/02260/grovesd/lonestar/Amil_Zach_Fullers_v2.00_cladeC_reference
+echo "\
+GENOME_FOLDER=/work/02260/grovesd/lonestar/Amil_Zach_Fullers_v2.00_cladeC_reference
+GENOME_PATH=${GENOME_FOLDER}/Amil.v2.00chrs_cladeC_genomes.fasta
+geneWindowFile=${GENOME_FOLDER}/geneBoundaries.bed
+promoterWindowFile=${GENOME_FOLDER}/promoterBoundaries.bed
+window500bpFile=${GENOME_FOLDER}/windowBoundaries_500bp.bed" > /work/02260/grovesd/lonestar/myReferences/Amil.v2.00_chrs_cladeC_genomes.sh
+
+
+#------- MAKING WINDOWS -------#
+#REPEAT FOR EACH REFERENCE:
+
+#set filenames
+GFF_HOST="Amil.coding.gff3"
+GFF_SYMBIONT="SymbC1.Gene_Models.Revised.GFF3"
+GENOME="Amil.v2.00chrs_cladeC_genomes.fasta"
+
+#generate gene windows
+gff_to_bed4.py -gff $GFF_HOST -feature gene -IDstring ID -o geneBoundariesHost0.txt
+gff_to_bed4.py -gff $GFF_SYMBIONT -feature gene -IDstring ID -o geneBoundariesSymb0.txt
+cat geneBoundariesHost0.txt geneBoundariesSymb0.txt > geneBoundaries.bed
+rm *0.txt
+
+#generate promoter windows
+gff_to_promoter_bed.py -gff $GFF_HOST -bp 1000 -IDstring ID -o promoterBoundariesHost0.txt
+gff_to_promoter_bed.py -gff $GFF_SYMBIONT -bp 1000 -IDstring ID -o promoterBoundariesSymbiont0.txt
+cat promoterBoundariesHost0.txt promoterBoundariesSymbiont0.txt > promoterBoundaries.bed
+rm *0.txt
+
+#generate 500 bp windows
+module load bedtools
+fasta_sequence_characters.py -fa $GENOME > chrLengths.txt
+bedtools makewindows -g chrLengths.txt -w 500 | awk 'BEGIN{OFS="\t"}{print $0,$1"-"$2"-"$3}' > windowBoundaries_500bp.bed
+
+
+#------ BUILD INDEXES FOR EACH CONCATENATION ------#
+cds
+cd build_bowties/
+cp /work/02260/grovesd/lonestar/ABCD_cat_genome_reference/cladeABCD_genomes_longerThan1Kb.fasta .
+cp /work/02260/grovesd/lonestar/Amil_Zach_Fullers_v2.00_cladeC_reference/Amil.v2.00chrs_cladeC_genomes.fasta .
+cp /work/02260/grovesd/lonestar/stylophora_cladeA_reference/stylophora_cladeA_genomes.fasta .
+cp /work/02260/grovesd/lonestar/aiptasia_cladeA_reference/aiptasia_cladeA_genomes.fasta .
+
+>dobuild
+for file in *.fasta
+do echo "bowtie2-build $file $file" >> dobuild
+done
+
+#copy back
+cp aiptasia_cladeA_genomes.fasta* /work/02260/grovesd/lonestar/aiptasia_cladeA_reference/
+cp Amil.v2.00chrs_cladeC_genomes.fasta* /work/02260/grovesd/lonestar/Amil_Zach_Fullers_v2.00_cladeC_reference/
+cp stylophora_cladeA_genomes.fasta* /work/02260/grovesd/lonestar/stylophora_cladeA_reference/
+cp cladeABC_genomes_longerThan1Kb.fasta* /work/02260/grovesd/lonestar/ABC_cat_genome_reference/
+
+
+
+echo "bismark_genome_preparation /work/02260/grovesd/lonestar/aiptasia_cladeA_reference/
+bismark_genome_preparation /work/02260/grovesd/lonestar/stylophora_cladeA_reference/
+bismark_genome_preparation /work/02260/grovesd/lonestar/Amil_Zach_Fullers_v2.00_cladeC_reference/" > bismarkBuild
+
+
+###########################################################
+##### CONCATENATED SYMBIONT REFERENCE FOR PROPORTIONS #####
+###########################################################
+
+cd ABC_cat_genome_reference
+ln -s ../cladeA_reference_genome/cladeA_genome_longerThan1Kb.fasta .
+ln -s ../cladeB_reference_genome/cladeB_genome_longerThan1Kb.fasta .
+ln -s ../cladeC_reference_genome/cladeC_genome_longerThan1Kb.fasta .
+cat cladeA_genome_longerThan1Kb.fasta cladeB_genome_longerThan1Kb.fasta cladeC_genome_longerThan1Kb.fasta > cladeABC_genomes_longerThan1Kb.fasta
+
+
+
+
+
+
+
+  
+

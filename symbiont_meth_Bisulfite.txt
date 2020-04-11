@@ -1,0 +1,1229 @@
+#symbiont_meth_Bisulfite.txt
+#Steps for processing bisulfite samples
+#see symbiont_meth_setup.txt for preparing data for steps below
+#Groves Dixon
+#4-4-20
+
+
+#####################################
+########## RUNNING BISMARK ##########
+#####################################
+
+
+#choose the genome you're working with
+source /work/02260/grovesd/lonestar/myReferences/cladeABC_genomes_longerThan1Kb.sh     #cladesABC
+source /work/02260/grovesd/lonestar/myReferences/aiptasia_cladeA_reference.sh          #Aiptasia-cladeA
+source /work/02260/grovesd/lonestar/myReferences/aiptasia_cladeA_reference.sh          #Aiptasia-cladeB #This actually seems to be the dominant one
+source /work/02260/grovesd/lonestar/myReferences/Amil.v2.00_chrs_cladeC_genomes.sh     #Amillepora-cladeC
+source /work/02260/grovesd/lonestar/myReferences/stylophora_cladeA_genomes.sh          #Stylophora-cladeA  
+
+
+#check
+echo $GENOME_FOLDER
+less $GENOME_PATH
+
+
+#FOR PAIED END
+module load bowtie
+module load samtools
+>runBismark
+for file in *_1.trim
+do echo "bismark --bowtie2 --score_min L,0,-0.6 -N 1 --multicore 6 --genome $GENOME_FOLDER -1 $file -2 ${file/_1.trim/}_2.trim" >> runBismark
+done
+
+
+launcher_creator.py -n runBismarkAip -j runBismark -q normal -N 12 -w 1 -a $allo -t 24:00:00 -e $email 
+
+
+#FOR SINGLE END
+module load bowtie
+module load samtools
+>runBismark
+for file in *.trim
+do echo "bismark --bowtie2 --score_min L,0,-0.6 -N 1 --non_directional --multicore 4 --genome $GENOME_FOLDER $file" >> runBismark
+done
+
+
+launcher_creator.py -n runBisAmil -j runBismark -q normal -N 8 -w 1 -a $allo -t 12:00:00 -e $email 
+
+
+#REMOVE DUPLICATES
+module load samtools
+>dedup
+for file in *_bismark_bt2*.bam 
+do echo "deduplicate_bismark --bam --paired $file" >> dedup
+done
+
+launcher_creator.py -n dedup -j dedup -q normal -N 1 -w 4 -a $allo -t 08:00:00
+
+#look at results
+grep "Total count of deduplicated leftover sequences" *.deduplication_report.txt
+
+
+#EXTRACT THE METHYLATION RESULTS
+
+#select pe or se
+ENDEDNES="--paired-end"
+ENDEDNES="--single-end"
+
+module load samtools
+>extractMeth
+for file in *_bismark_bt2*.deduplicated.bam 
+do echo "bismark_methylation_extractor --multicore 4 $file $ENDEDNES --merge_non_CpG --scaffolds --comprehensive --cytosine_report --genome_folder $GENOME_FOLDER" >> extractMeth
+done
+
+#note wayness of 1 seems better here because so many temp files are output for scaffolds during cov writing 
+launcher_creator.py -n extrAmil -j extractMeth -q normal -N 2 -w 4 -a $allo -e $email -t 24:00:00
+
+
+#############################################
+############## PIPELINE COUNTS ##############
+#############################################
+
+#RAW COUNTS
+wc -l *.fastq |\
+ awk '{split($2, a, ".fastq")
+ print a[1]"\t"$1/4"\trawCounts"}' |\
+ grep -v total > raw_read_counts.tsv &
+
+
+
+#POST TRIMMING READ COUNT
+wc -l *.trim |\
+ awk '{split($2, a, ".trim")
+ print a[1]"\t"$1/4"\ttrimmedCounts"}' |\
+ grep -v total > trimmed_read_counts.tsv &
+
+>all_bisulfite_reports.txt
+for file in *PE_report.txt
+do echo -e "${file}....\n" >> all_reports.txt; cat $file >> all_bisulfite_reports.txt
+echo -e "\n\n---------------------------------------------------" >> all_bisulfite_reports.txt
+done
+
+
+#TOTAL READS GOING INTO BISMARK
+>bismark_starting_reads.tsv
+for file in *PE_report.txt
+do count=$(grep "Sequence pairs analysed in total" $file | cut -f 2)
+sample=${file/.trim_bismark_bt2_SE_report.txt/}
+echo -e "${sample}\t${count}\tstartingCount" >> bismark_starting_reads.tsv
+done
+
+
+#TOTAL MAPPED COUNTS
+>bismark_mapped_counts.tsv
+for file in *PE_report.txt
+do mapped=$(grep "alignments with a unique best" $file | cut -f 2)
+sample=${file/.trim_bismark_bt2_SE_report.txt/}
+echo -e "${sample}\t${mapped}\tmappedCount" >> bismark_mapped_counts.tsv
+done
+
+
+#MAPPING EFFICIENCIES
+>bismark_mapping_efficiencies.txt
+for file in *PE_report.txt
+do mapeff=$(grep "Mapping efficiency" $file | cut -f 2)
+echo -e "${file}\t${mapeff}" >> bismark_mapping_efficiencies.txt
+done
+
+#METH CONTEXT PERCENTAGES
+echo -e "file\tCpG.pct\tCHG.pct\tCHH.pct\tCN_or_CHH">methylation_context_percentages.txt
+for file in *PE_report.txt
+do cpg=$(grep "C methylated in CpG context:" $file | cut -f 2)
+chg=$(grep "C methylated in CHG context:" $file | cut -f 2)
+chh=$(grep "C methylated in CHH context:" $file | cut -f 2)
+unkown=$(grep "C methylated in unknown context" $file | cut -f 2)
+echo -e "$file\t$cpg\t$chg\t$chh\t$unknown" >> methylation_context_percentages.txt
+done
+
+#DEDUPLICATED COUNT
+>bismark_dedup_count.txt
+for file in *.deduplication_report.txt
+do count=$(grep "leftover sequences" $file | awk '{print $7}')
+echo -e "${file}\t${count}\tdedupCount" >> bismark_dedup_count.txt
+done
+
+
+#assemble results
+cat bismark_starting_reads.tsv bismark_mapped_counts.tsv bismark_dedup_count.txt > pipeline_counts.txt 
+
+
+
+
+#############################################
+######## METHYLATION LEVEL BASIC WAY ########
+#############################################
+
+#choose the genome you're working with
+source /work/02260/grovesd/lonestar/myReferences/aiptasia_cladeA_reference.sh          #Aiptasia-cladeA
+source /work/02260/grovesd/lonestar/myReferences/aiptasia_cladeA_reference.sh          #Aiptasia-cladeB #This actually seems to be the dominant one
+source /work/02260/grovesd/lonestar/myReferences/Amil.v2.00_chrs_cladeC_genomes.sh     #Amillepora-cladeC
+source /work/02260/grovesd/lonestar/myReferences/stylophora_cladeA_genomes.sh          #Stylophora-cladeA  
+
+
+#first concatenate the covs adding file name as 6th column
+>all_covs.tsv
+for file in *.cov
+do echo "${file}..."
+awk -v FILE="$file" '{print $0"\t"FILE}' $file >> all_covs.tsv
+done
+
+
+#SPLIT BY CHROMOSOME
+
+#get scaffolds
+grep ">" $GENOME_PATH | sed 's/>//' | cut -f 1 -d " " > uchrs.txt
+
+#split cov
+mkdir splitCovs
+>doSplits
+while read chr
+do modChr=${chr/|/_}
+echo "grep -w \"^${chr}\" all_covs.tsv > splitCovs/${modChr}_sub.cov" >> doSplits
+done < uchrs.txt
+
+launcher_creator.py -n doSplits -j doSplits -q development -N 2 -w 48 -a $allo -t 02:00:00
+
+
+#check
+echo $promoterWindowFile
+echo $geneWindowFile
+echo $exonWindowFile
+
+
+#get stats
+>getBasic
+for file in *_sub.cov
+do echo "basic_methylation_from_bed.R --cov $file --bed $promoterWindowFile --o ${file/_sub.cov/}.promoter.basicStats" >>getBasic
+ echo "basic_methylation_from_bed.R --cov $file --bed $exonWindowFile --o ${file/_sub.cov/}.exon.basicStats" >>getBasic
+ echo "basic_methylation_from_bed.R --cov $file --bed $geneWindowFile --o ${file/_sub.cov/}.gene.basicStats" >>getBasic
+done
+
+launcher_creator.py -n basicSty -j getBasic -q normal -N 1 -w 24 -a $allo -e $email -t 5:00:00
+
+
+#ASSEMBLE RESULTS
+
+#for promoters
+PREFIX="promoter"
+ls *${PREFIX}*.basicStats > ${PREFIX}_subfiles.txt
+head -n1 `head -n 1 ${PREFIX}_subfiles.txt` > ${PREFIX}_basicStatsBed.tsv
+while read subfile
+do tail -n +2 $subfile >> ${PREFIX}_basicStatsBed.tsv
+done < ${PREFIX}_subfiles.txt
+
+#for genes
+PREFIX="gene"
+ls *${PREFIX}*.basicStats > ${PREFIX}_subfiles.txt
+head -n1 `head -n 1 ${PREFIX}_subfiles.txt` > ${PREFIX}_basicStatsBed.tsv
+while read subfile
+do tail -n +2 $subfile >> ${PREFIX}_basicStatsBed.tsv
+done < ${PREFIX}_subfiles.txt
+
+
+#for exons
+PREFIX="exon"
+ls *${PREFIX}*.basicStats > ${PREFIX}_subfiles.txt
+head -n1 `head -n 1 ${PREFIX}_subfiles.txt` > ${PREFIX}_basicStatsBed.tsv
+while read subfile
+do tail -n +2 $subfile >> ${PREFIX}_basicStatsBed.tsv
+done < ${PREFIX}_subfiles.txt
+
+
+###########################################
+########## METHYLKIT FOR WINDOWS ##########
+###########################################
+#This also appears in the benchmarking walkthough
+#modified here to get more significant differences
+
+#choose the genome you're working with
+source /work/02260/grovesd/lonestar/myReferences/aiptaisiaReference.sh    #aiptaisia
+source /work/02260/grovesd/lonestar/myReferences/amilleporaReference.sh   #amillepora
+source /work/02260/grovesd/lonestar/myReferences/bumbleBeeReference.sh    #bumblebee
+source  /work/02260/grovesd/lonestar/myReferences/maternalBeeReference.sh #maternal bee
+source /work/02260/grovesd/lonestar/myReferences/robustAntReference.sh    #robust ant
+source /work/02260/grovesd/lonestar/myReferences/silkwormReference.sh     #silkworm
+source /work/02260/grovesd/lonestar/myReferences/stylophoraReference.sh   #S. pistillata
+source /work/02260/grovesd/lonestar/myReferences/honeybeeReference.sh     #honeybee
+source /work/02260/grovesd/lonestar/myReferences/termiteReference.sh      #termite
+
+
+##NOTE, using NCORES=12 cores here sometimes caused calculateDiffMeth() to error out with Error in lm.fit(x, y, offset = offset, singular.ok = singular.ok, ...) :0 (non-NA) cases
+NCORES=1  
+LOWCOUNT=3
+MINPROP=0.75
+TREATMENT_TABLE=bisulfite_treat_table.txt
+
+#check
+echo $geneWindowFile
+echo $exonWindowFile
+echo $promoterWindowFile
+echo $tssWindowFile
+echo $window1KbFile
+echo $window500bpFile
+
+
+
+>runMethylKitWindows
+
+#RUN FOR GENES
+echo "\
+methylKitWindowsV2.R -m $TREATMENT_TABLE -N $NCORES --prefix gene_change --minimum_depth $LOWCOUNT -a $GENOME_PATH --windows_bed $geneWindowFile --min_prop_group $MINPROP" >> runMethylKitWindows
+
+#RUN FOR EXONS
+echo "\
+methylKitWindowsV2.R -m $TREATMENT_TABLE -N $NCORES --prefix exon_change --minimum_depth $LOWCOUNT -a $GENOME_PATH --windows_bed $exonWindowFile --min_prop_group $MINPROP" >> runMethylKitWindows
+
+#RUN FOR PROMOTERS
+echo "\
+methylKitWindowsV2.R -m $TREATMENT_TABLE -N $NCORES --prefix promoter_change --minimum_depth $LOWCOUNT -a $GENOME_PATH --windows_bed $promoterWindowFile --min_prop_group $MINPROP" >> runMethylKitWindows
+
+#RUN FOR TSSs
+echo "\
+methylKitWindowsV2.R -m $TREATMENT_TABLE -N $NCORES --prefix tss_change --minimum_depth $LOWCOUNT -a $GENOME_PATH --windows_bed $tssWindowFile --min_prop_group $MINPROP" >> runMethylKitWindows
+
+
+#RUN FOR WINDOWS
+echo "\
+methylKitWindowsV2.R -m $TREATMENT_TABLE -N $NCORES --prefix 1KbWindows_change --minimum_depth $LOWCOUNT -a $GENOME_PATH --windows_bed $window1KbFile --min_prop_group $MINPROP" >> runMethylKitWindows
+
+#RUN FOR 500 BP WINDOWS
+echo "\
+methylKitWindowsV2.R -m $TREATMENT_TABLE -N $NCORES --prefix 500bpWindows_change --minimum_depth $LOWCOUNT -a $GENOME_PATH --windows_bed $window500bpFile --min_prop_group $MINPROP" >> runMethylKitWindows
+
+
+launcher_creator.py -n windowAmil -j runMethylKitWindows -q normal -N 2 -w 1 -a $allo -e $email -t 5:00:00
+
+#------------------------------------------------#
+#--------- GET CLOSEST GENE FOR WINDOWS ---------#
+#------------------------------------------------#
+
+#genome source should be same as above
+>getCloseGenes
+for windowRes in *Windows_change_significant.tsv
+do outName=${windowRes/.tsv/}_closeGeneDistances.tsv
+echo "closeBound_upDown_gene_fromBed.R --g $GFF_PATH --b $windowRes --o $outName" >> getCloseGenes
+done
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+######################################
+############## TRIAL RUN #############
+######################################
+#optionally, get subsets of the files to run a trial run with, 
+#to work out bugs before starting with full files
+
+NTEST=400000
+mkdir testRun
+for file in *.fastq
+do head -n 400000 $file > testRun/${file}
+done
+
+#then follow the pipeline as below but in a idev session
+
+
+
+######################################
+################ SETUP ###############
+######################################
+
+
+#get the s.pistilatta genome from here: http://spis.reefgenomics.org/download/
+spistGenome="/work/02260/grovesd/lonestar/stylophora_pistillata_genome/Spis.genome.scaffold.final.fa"
+
+#download the reads from SRA database
+#instructions can be found in SRA_downloading.txt
+
+#CHECK QUALITY WITH FASTQC
+
+module load fastqc
+mkdir Fastqc_Restults_raw/
+> runFQC
+for file in *.fastq
+do echo "fastqc -o Fastqc_Restults_raw/ -f fastq $file" >> runFQC
+launcher_creator.py -n runFQC -j runFQC -q normal -N 1 -w 48 -a $allo -e $email -t 05:00:00
+sbatch runFQC.slurm
+
+#note that this let's you confirm the quality score encoding
+#this is given as Sanger / Illumina 1.9 which is equivalent to Phred+33
+
+
+#GET RAW READ COUNT
+#note that fastqs are almost always 4-lines per read, but
+#still double-check these are before using this command
+
+wc -l *.fastq | awk 'BEGIN {print "file\tlineCount\treadCount"};{print $2"\t"$1"\t"$1/4}' > raw_read_counts.tsv &
+
+######################################
+############## TRIMMING ##############
+######################################
+#using the first 13 bp of the standard adapters as in TrimGalore
+
+
+#TRIMMING PAIRED END READS
+
+>trimpe
+for file in *_2.fastq
+do echo "cutadapt \
+-a GATCGGAAGAGCA \
+-A GATCGGAAGAGCA \
+-a AGATCGGAAGAGC \
+-A AGATCGGAAGAGC \
+--minimum-length 50 \
+-q 30 \
+-o ${file/_2.fastq/}_1.trim \
+-p ${file/_2.fastq/}_2.trim \
+${file/_2.fastq/}_1.fastq \
+$file" >> trimpe
+done
+
+
+launcher_creator.py -n trimpe -j trimpe -a $allo -e $email -q normal -t 8:00:00 -N 1 -w 6
+sbatch trimpe.slurm
+
+
+#or
+
+#TRIMMING SINGLE END READS
+
+>trimse
+for file in *_1.fastq
+do echo "cutadapt \
+-a GATCGGAAGAGCA \
+-a AGATCGGAAGAGC \
+--minimum-length 50 \
+-q 30 \
+-o ${file/_1.fastq/}_1.trim \
+$file" >> trimse
+done
+
+
+#or
+
+
+#CHECK QUALITY POST-TRIMMING FASTQC
+
+module load fastqc
+mkdir Fastqc_Restults_postTrim/
+> runFQC2
+for file in *.trim
+do echo "fastqc -o Fastqc_Restults_postTrim/ -f fastq $file" >> runFQC2
+done
+launcher_creator.py -n runFQC2 -j runFQC2 -q normal -N 1 -w 24 -a $allo -e $email -t 02:00:00
+sbatch runFQC2.slurm
+
+
+#GET POST TRIMMING READ COUNT
+wc -l *.fastq | awk 'BEGIN {print "file\tlineCount\treadCount"};{print $2"\t"$1"\t"$1/4}' > raw_read_counts.tsv &
+wc -l *.trim | awk 'BEGIN {print "file\tlineCount\treadCount"};{print $2"\t"$1"\t"$1/4}' > trimmed_read_counts.tsv &
+
+
+#########################################
+###### NUCLEOTIDE CONTENT OF READS ######
+#########################################
+#the directionality of the reads can be seen in their GC content
+#this section 
+
+
+module load fastx_toolkit
+NLINES=100000
+>getContent
+for file in *.trim
+do echo "head -n $NLINES $file | fastq_to_fasta -i - -o ${file/.trim/}.fasta && concatenate_fasta.py -i ${file/.trim/}.fasta -o ${file/.trim/}.cat && get_gc_content.pl ${file/.trim/}.cat ${file/.trim/}_content.txt" >>getContent
+done
+
+echo "file pctGC total nG nC nA nT" > all_content_report.txt
+for file in *content.txt; do grep -v "^ID" $file >> all_content_report.txt ;done
+
+
+#IMPORTANT!
+#noticed here that the forward and reverse reads are not always as they should be
+#a subset seem to have the forward and reverse pairs mixed up:
+SRR5572205
+SRR5572206
+SRR5572207
+SRR5572208
+SRR5572209
+
+#this doesn't matter if you pick --non_directional,
+#but it seems better not to use this unless necessary
+#instead fix directionality just by switching the _1s and _2s
+while read ts
+do echo "mv ${ts}_1.trim ${ts}_2.fixed"; echo "mv ${ts}_2.trim ${ts}_1.fixed"
+done<toSwap
+
+rename .fixed .trim *.fixed
+
+#########################################
+#### CHECK DIRECTIONALITY OF DATASET ####
+#########################################
+NTEST=400000
+mkdir testRun
+for file in *.trim
+do head -n $NTEST $file > testRun/${file}
+done
+
+
+#run Bismark on subsets in --non_directional mode
+
+#check the output report:
+
+		Number of sequence pairs with unique best (first) alignment came from the bowtie output:
+		CT/GA/CT:	3897	((converted) top strand)
+		GA/CT/CT:	1	(complementary to (converted) top strand)
+		GA/CT/GA:	0	(complementary to (converted) bottom strand)
+		CT/GA/GA:	3953	((converted) bottom strand)
+		
+#If the two 'complementary' ones are zero or near zero, the library was directional
+#If they are roughly equal, then the library is non-directional
+
+
+
+
+
+#####################################
+########## RUNNING BISMARK ##########
+#####################################
+
+#PREPARE GENOME
+GENOME_PATH="/work/02260/grovesd/lonestar/stylophora_pistillata_genome"     #used for stylophora
+GENOME_PATH="/work/02260/grovesd/lonestar/aiptasia_genome"                  #used for aiptasia
+GENOME_PATH="/work/02260/grovesd/lonestar/daphnia_magna_geome"              #used for daphnia
+GENOME_PATH="/work/02260/grovesd/lonestar/honeybee_genome"                  #used for honeybee
+GENOME_PATH="/work/02260/grovesd/lonestar/zootermopsis_nevadensis_genome/"  #for termite
+GENOME_PATH="/work/02260/grovesd/stampede2/zootermopsis_nevadensis_genome/" #for termite
+GENOME_PATH="/work/02260/grovesd/lonestar/Ooceraea_biroi_genome/"           #For robust ants
+GENOME_PATH="/work/02260/grovesd/lonestar/Ceratina_calcarata_genome_MIN500/" #For Ceratina calcarata (maternal bees) !!Note, methylation_extractor would not work on this one as is. It had tons of scaffolds, the majority less than 500 bp. Removed these because are not going to informative anyway
+GENOME_PATH="/work/02260/grovesd/lonestar/bumblebee_genome"                  #For bumblebees
+
+
+module load bowtie
+/work/02260/grovesd/lonestar/bismark_installation/Bismark-master/bismark_genome_preparation $GENOME_PATH
+
+
+#RUN MAPPING FOR PAIRED END
+
+#run multicore = 3 for bismark
+#threads = 4 for bowtie
+#run with 4 nodes
+#wayness of 6
+module load intel/17.0.4
+module load samtools
+module load bowtie
+>runBismark
+for file in *_1.trim
+do echo "bismark --bowtie2 --multicore 4 --genome $GENOME_PATH -1 $file -2 ${file/_1.trim/}_2.trim" >> runBismark
+done
+
+launcher_creator.py -n runBismarkBumble -j runBismark -q normal -N 3 -w 2 -t 16:00:00 -a $allo -e $email
+
+
+#OR
+
+#FOR SINGLE END
+>runBismark
+for file in *_1.trim
+do echo "bismark --bowtie2 --non_directional --multicore 8 -p 2  --genome $GENOME_PATH $file" >> runBismark
+done
+
+
+
+
+#GATHER RESULTS SUMMARIES
+
+>all_bisulfite_reports.txt
+for file in *PE_report.txt
+do echo -e "${file}....\n" >> all_reports.txt; cat $file >> all_bisulfite_reports.txt
+echo -e "\n\n---------------------------------------------------" >> all_bisulfite_reports.txt
+done
+
+#gather mapping efficiencies
+>bismark_mapping_efficiencies.txt
+for file in *PE_report.txt
+do mapeff=$(grep "Mapping efficiency" $file | cut -f 2)
+echo -e "${file}\t${mapeff}" >> bismark_mapping_efficiencies.txt
+done
+
+
+#gather methylation context percentages
+echo -e "file\tCpG.pct\tCHG.pct\tCHH.pct\tCN_or_CHH">methylation_context_percentages.txt
+for file in *PE_report.txt
+do cpg=$(grep "C methylated in CpG context:" $file | cut -f 2)
+chg=$(grep "C methylated in CHG context:" $file | cut -f 2)
+chh=$(grep "C methylated in CHH context:" $file | cut -f 2)
+unkown=$(grep "C methylated in unknown context" $file | cut -f 2)
+echo -e "$file\t$cpg\t$chg\t$chh\t$unknown" >> methylation_context_percentages.txt
+done
+
+
+#MAKE METHYLATION CALLS
+#make sure GENOME_PATH is set correctly!
+
+module load samtools
+>extractMeth
+for file in *bismark_bt2_pe.bam
+do echo "bismark_methylation_extractor $file -p --merge_non_CpG --comprehensive --cytosine_report --multicore 4 --genome_folder $GENOME_PATH" >> extractMeth
+done
+
+launcher_creator.py -n extractMaternal -j extractMeth -q normal -N 2 -w 3 -a $allo -t 6:00:00 -e $email
+
+
+
+#the results we want are in the cov files
+#header:
+#<chromosome>  <start position>  <end position>  <methylation percentage>  <count methylated>  <count non-methylated>
+#eg:
+Spis.scaffold234|size472257     1986    1986    16.6666666666667        1       5
+Spis.scaffold234|size472257     1987    1987    28.5714285714286        2       5
+Spis.scaffold234|size472257     4090    4090    0       0       10
+Spis.scaffold234|size472257     4091    4091    0       0       6
+Spis.scaffold234|size472257     4117    4117    0       0       18
+Spis.scaffold234|size472257     4118    4118    7.14285714285714        1       13
+
+
+
+########################################
+########## SPLIT BY SCAFFOLDS ##########
+########################################
+#note tried --split_by_chromosome in bismark_methylation_extractor but I had locked into using the cov files
+
+#GET THE UNIQUE SCAFFOLDS
+for file in *.cov
+do echo "cut -f 1 $file | sort | uniq > ${file/.trim_bismark_bt2_pe.bismark.cov/}_uchrs.txt &"
+done
+
+cat *_uchrs.txt | sort | uniq > uchrs.txt
+
+
+#SPLIT UP EACH COV FILE
+
+#first split them
+
+#keep just the chromosome, position, methylatedCount, and unmethylated count
+mkdir split_covs
+>doSplit
+for file in *.cov
+do echo "${file}..."
+PREFIX=${file/.trim_bismark_bt2_pe.bismark.cov/}
+while read chr
+do echo "grep -w \"^${chr}\" $file |\
+ cut -f 1,2,5,6 | sed -e \"s/$/\t$PREFIX/\"\
+ > split_covs/${PREFIX}_${chr}.sub" >> doSplit
+done < uchrs.txt
+done
+
+launcher_creator.py -n splitBumb -j doSplit -q normal -a $allo -e $email -N 1 -w 40 -t 01:00:00
+
+
+
+#######################################
+###### ASSIGN POSITIONS TO GENES ######
+#######################################
+
+#SELECT WHICH GENOME YOU'RE WORKING WITH:
+
+#-------------- AIPTAISIA --------------#
+GFF="GCF_001417965.1_Aiptasia_genome_1.1_genomic.gff"
+GENOME="GCA_001417965.1_Aiptasia_genome_1.1_genomic.fasta"
+GFF_SUB_PATH="$WORK/aiptasia_genome/gffSubs"
+PARENT_FEATURE="mRNA"
+BLOCK_FEATURE="CDS"
+PARENT_ID="ID="
+BLOCK_ID="Parent="
+#---------------------------------------#
+#-------------- STYLOPHORA -------------#
+#!Note! when making the gff subs, converte the pipes in the scaffold names to underscores
+#Use sed to fix the cov files before splitting.
+GFF="Spis.revised_nopipe.gff"
+GENOME="Spis.genome.scaffold.final.fa"
+GFF_SUB_PATH="$WORK/stylophora_pistillata_genome/gffSubs"
+PARENT_FEATURE="mRNA"
+BLOCK_FEATURE="exon"
+PARENT_ID="ID="
+BLOCK_ID="Parent="
+#---------------------------------------#
+#--------------- TERMITE ---------------#
+GFF="GCA_000696155.1_ZooNev1.0_genomic.gff"
+GENOME="GCA_000696155.1_ZooNev1.0_genomic.fa"
+GFF_SUB_PATH="$WORK/zootermopsis_nevadensis_genome/gffSubs"
+PARENT_FEATURE="mRNA"
+BLOCK_FEATURE="exon"
+PARENT_ID="ID="
+BLOCK_ID="Parent="
+#---------------------------------------#
+#-------------- HONEYBEE ---------------#
+GFF="Apis_mellifera.Amel_4.5.41.gtf"
+GENOME="Apis_mellifera.Amel_4.5.dna.toplevel.fa"
+GFF_SUB_PATH="$WORK/honeybee_genome/gffSubs"
+PARENT_FEATURE="transcript"
+BLOCK_FEATURE="exon"
+PARENT_ID="gene_id "
+BLOCK_ID="gene_id "
+#---------------------------------------#
+#-------- O.BIROI (robust ants) --------#
+GFF="GCF_003672135.1_Obir_v5.4_genomic.gff"
+GENOME="GCF_003672135.1_Obir_v5.4_genomic.fasta"
+GFF_SUB_PATH="$WORK/Ooceraea_biroi_genome/gffSubs"
+PARENT_FEATURE="mRNA"
+BLOCK_FEATURE="exon"
+PARENT_ID="ID="
+BLOCK_ID="Parent="
+#---------------------------------------#
+#----- C. CALCARATA (maternal bee) -----#
+GFF="GCF_001652005.1_ASM165200v1_genomic.gff"
+GENOME="GCF_001652005.1_ASM165200v1_genomic_MIN500.fasta"
+GFF_SUB_PATH="$WORK/Ceratina_calcarata_genome_MIN500/gffSubs"
+PARENT_FEATURE="mRNA"
+BLOCK_FEATURE="exon"
+PARENT_ID="ID="
+BLOCK_ID="Parent="
+#---------------------------------------#
+#-------------- BUMBLEBEE --------------#
+GFF="GCF_000214255.1_Bter_1.0_genomic.gff"
+GENOME="GCF_000214255.1_Bter_1.0_genomic.fasta"
+GFF_SUB_PATH="$WORK/bumblebee_genome/gffSubs"
+PARENT_FEATURE="mRNA"
+BLOCK_FEATURE="exon"
+PARENT_ID="ID="
+BLOCK_ID="Parent="
+#---------------------------------------#
+
+
+#MAKE GFF SUBSETS
+#make dir to put them in
+mkdir ${GFF_SUB_PATH}
+
+#get scaffolds
+grep "^>" $GENOME | sed 's/>//' | cut -d " " -f 1 > scaffolds.txt
+
+#set up commands to make gff Subsets
+>makeGffs
+while read chr
+do echo "grep -w \"^${chr}\" $GFF > ${GFF_SUB_PATH}/${chr}_sub_${GFF}" >> makeGffs
+done < scaffolds.txt
+
+#make them
+launcher_creator.py -n makeGffs -j makeGffs -q normal -N 1 -w 48 -a $allo -e $email -t 00:45:00
+
+
+#get a gff transcript-to-gene table
+parent_table_from_gff.R --gff $GFF --feature $PARENT_FEATURE --idTag $PARENT_ID --parentTag $BLOCK_ID --o mRNA_to_gene.txt
+
+
+
+#DO ASSIGMENT
+mkdir assigned_covs
+>assign
+while read chr
+do for filePath in split_covs/*_${chr}.sub
+do file=$(echo $filePath | tr '\n' '\0' | xargs -0 -n 1 basename)
+echo "assign_positionsV3.py -i $filePath -gff ${GFF_SUB_PATH}/${chr}_sub_${GFF} -o assigned_covs/${file/.sub/}.assigned -parentFeature $PARENT_FEATURE -blockFeature $BLOCK_FEATURE -parentId $PARENT_ID -blockId $BLOCK_ID" >> assign
+done
+done<uchrs.txt
+
+
+launcher_creator.py -n assignMat -j assign -q normal -a $allo -e $email -N 4 -w 68 -t 12:00:00
+
+
+
+
+##########################################
+###### COMPILE THE DATA BY SCAFFOLD ######
+##########################################
+
+
+#then compile into single files for each chromosome, 
+#making R objects labeled by whether genes are present on scaffold
+>compileChrs
+mkdir chr_covs
+while read chr
+do echo "cat assigned_covs/*_${chr}.assigned > chr_covs/${chr}.cov && convert_scaffold_to_Robject.R chr_covs/${chr}.cov" >> compileChrs
+done < uchrs.txt
+
+launcher_creator.py -n catBumb -j compileChrs -q development -a $allo -t 02:00:00 -N 2 -w 48
+
+
+#assemble all the covs
+cat *.cov > all_gbm_covs.tsv
+
+
+
+#gather only those with gbm data
+mkdir gbm_Robjects
+mv chr_covs/*.Rdata gbm_Robjects/
+
+
+##########################################
+######## GET GBM STATS BASIC WAY #########
+##########################################
+
+#---- GET BASIC STATS ----#
+#execute the species-specific variables above for GFF stuff
+#(This one runs on scaffold subsetted files)
+
+>getBasicGbm
+for file in *_gbm.Rdata
+do chr=${file/_gbm.Rdata/}
+echo "basic_gbm_stats.R --i $file --g ${GFF_SUB_PATH}/${chr}_sub_${GFF} --blockID $BLOCK_ID --o ${chr}_basicGbmStats" >> getBasicGbm
+done
+
+
+
+
+
+#assemble the results
+cat *_basicGbmStats_by_gene.tsv > all_basic_gbm_by_gene.tsv &
+cat *_basicGbmStats_by_exon.tsv > all_basic_gbm_by_exon.tsv &
+cat *_basicGbmStats_by_promoter.tsv > all_basic_gbm_by_promoter.tsv &
+cat *_basicGbmStats_by_promoterPlusExon1.tsv > all_basic_gbm_by_promoterPlusExon1.tsv &
+
+
+
+>getBasicGbmTreat
+for file in *gbm.Rdata
+do chr=${file/_gbm.Rdata/}
+echo "basic_gbm_stats_with_treatments_Robjects.R --i $file --g ${GFF_SUB_PATH}/${chr}_sub_${GFF} --blockID $BLOCK_ID --o ${chr}_basicGbmTreatments --t treatment_table.txt" >> getBasicGbmTreat
+done
+
+launcher_creator.py -n basicMat -j getBasicGbmTreat -q normal -N 6 -w 6 -a $allo -e $email -t 2:00:00
+
+
+#assemble the results
+cat *_basicGbmTreatments_by_gene.tsv > all_basicTreatment_gbm_by_gene.tsv &
+cat *_basicGbmTreatments_by_exon.tsv > all_basicTreatment_gbm_by_exon.tsv &
+cat *_basicGbmTreatments_by_promoter.tsv > all_basicTreatment_gbm_by_promoter.tsv &
+cat *_basicGbmTreatments_by_promoterPlusExon1.tsv > all_basicTreatment_gbm_by_promoterPlusExon1.tsv &
+
+
+##############################################
+##### GET TREATMENT EFFECTS ON PROMOTERS #####
+##############################################
+
+
+>promoterEffects
+for file in *gbm.Rdata
+do echo "treatEffect_by_glm_scaffoldRobjectInputs.R --i $file --t treatment_table.txt --o ${file/_gbm.Rdata/}_promoterEffects.txt --mode promoter" >>promoterEffects
+done
+
+
+#takes about 30 minutes for 48 to run in parallel
+launcher_creator.py -n promoterMat -j promoterEffects -q normal -N 4 -w 24 -a $allo -e $email -t 05:00:00
+
+
+#IF IT DIDN'T FINISH
+
+#make a finish job file
+cp promoterEffects finishPromoterEffects
+
+#remove completed lines
+for file in *_promoterEffects.txt*
+do toRemove=${file/.insufficientData/}
+sed -i "/--o $toRemove/d" ./finishPromoterEffects 
+done &
+
+
+#once all complete, assemble into single file
+cat *_promoterEffects.txt > all_promoter_glm_estimates.tsv
+
+
+
+###########################################
+######### GET GBM STATS WITH GLM ##########
+###########################################
+#get GBM by running glm in chunks:
+#(This one runs on the full concatenated dataset in chunks)
+>runGbmReps
+for i in $(seq 2 10)
+do echo "gbm_by_glm_onSumsV2_subIterated.R --i all_gbm_covs.tsv --n 20 --o allRep${i}" >> runGbmReps
+done
+
+
+#works with wayness of 2
+launcher_creator.py -n gbmLvlBumb -j runGbmReps -q normal -N 3 -w 1 -a $allo -e $email -t 6:00:00
+
+
+#assemble the results
+echo -e "gene\tcoef\tnorm\trepFile" > gbm_reps.tsv
+for file in allRep*all.tsv
+ do echo "${file}..."
+ sed -e "s/$/\t$file/" $file >> gbm_reps.tsv
+done
+
+
+#get averages accross replicates with average_gbm_reps.R on Mac
+
+
+#########################################
+########## GET TREATMENT EFFECT #########
+#########################################
+
+#separate into genes
+cut -f 3 all_gbm_covs.tsv | sort | uniq > all_genes.txt
+
+
+mkdir gene_covs
+rm gene_covs/*.cov
+>splitByGene
+while read gene
+do echo "grep -w $gene all_gbm_covs.tsv > gene_covs/${gene}.cov && convert_scaffold_to_Robject.R gene_covs/${gene}.cov" >> splitByGene
+done < all_genes.txt
+
+launcher_creator.py -n splitByGene -j splitByGene -q normal -N 3 -w 48 -a $allo -t 02:00:00
+
+
+
+#(This one runs on individual genes)
+>getTreatEffects
+for file in *.Rdata
+do echo "treatEffect_by_glm_geneRobjectInputs.R --i $file --t treatment_table.txt --o ${file/.Rdata/}_results.txt" >> getTreatEffects
+done
+
+
+
+
+#note, wayness 48 seems too high
+launcher_creator.py -n treatBumb -j getTreatEffects -q normal -N 5 -w 12 -a $allo -e $email -t 6:00:00
+
+
+#IN CASE IT DIDN'T FINISH
+#make a finish job file
+cp getTreatEffects finishTreatEffects
+
+#remove completed commands from it
+for file in *_gbm.Rdata_results.txt
+do sed -i "/--o $file/d" ./finishTreatEffects 
+done &
+
+
+#concatenate the results
+cat *_results.txt > all_gbm_treat_effects.tsv
+
+
+
+
+#------------
+
+
+
+
+
+
+OLD STUFF BELOW---------------------------------------------------
+
+
+
+
+
+
+
+
+
+
+########################################
+####### DIFFERENTIAL METHYLATION #######
+########################################
+
+#Test for differential methylation with methylkit
+
+#set up an input table:
+nano methylKit0_inputTable.txt
+
+
+#paste this (or something like it for whichever study):
+run	treatInfo	id	treat
+SRR5572202_1.trim_bismark_bt2_pe.bismark.cov	7.4	7.4B	1
+SRR5572203_1.trim_bismark_bt2_pe.bismark.cov	7.4	7.4C	1
+SRR5572204_1.trim_bismark_bt2_pe.bismark.cov	8	8.0B	0
+SRR5572205_1.trim_bismark_bt2_pe.bismark.cov	8	8.0C	0
+SRR5572208_1.trim_bismark_bt2_pe.bismark.cov	7.2	7.2A	1
+SRR5572209_1.trim_bismark_bt2_pe.bismark.cov	7.2	7.2B	1
+SRR5572210_1.trim_bismark_bt2_pe.bismark.cov	7.2	7.2C	1
+SRR5572211_1.trim_bismark_bt2_pe.bismark.cov	7.4	7.4A	1
+SRR5572213_1.trim_bismark_bt2_pe.bismark.cov	8	8.0A	0
+
+
+
+
+
+#RUN METHYL KIT
+
+echo "$runMyR ~/bin/methylKit0.R -m methylKit0_inputTable.txt -N 24 --prefix stylophoraMethylKitOutLow8 --summary TRUE --low.count 3" > runMeth0
+module load Rstats
+launcher_creator.py -n methylKitAip -j runMeth0 -q normal -N 1 -w 1 -t 12:00:00 -a $allo -e $email
+sbatch runMeth0.slurm
+
+#MERGIN COV FILES INTO SINGLE FILE OF METHYLATION PERCENTAGES
+
+echo "$runMyR ~/bin/merge_covs.R --covPath . --minCount 4 --minRep 80.0 --outPrefix methPects_low8" > runMergeCov
+
+
+
+
+#-------------- ASSIGNING CPG LOCATIONS --------------#
+#Using a homebrewed python script
+
+#EXAMPLE COMMANDS:
+
+#for Apis gtf (Apis_mellifera.Amel_4.5.41.gtf)
+assign_positions.py -i control_1.trim_bismark_bt2_pe.bismark.cov -gff Apis_mellifera.Amel_4.5.41.gtf -o control_assigned.cov -parentFeature transcript -blockFeature exon -parentId "transcript_id " -blockId "transcript_id " -addBlocks three_prime_utr
+
+#for GCF_001417965.1_Aiptasia_genome_1.1_genomic.gff
+assign_positions.py -gff GCF_001417965.1_Aiptasia_genome_1.1_genomic.gff -o testing.tsv -parentFeature mRNA -blockFeature CDS -parentId "ID=" -blockId "Parent="
+
+#for Spis.genome.annotation.gff3
+assign_positions.py -gff Spis.genome.annotation.gff3 -o testing.tsv -parentFeature mRNA -blockFeature CDS -parentId "ID=" -blockId "Parent="
+
+#for Strongylocentrotus_purpuratus.Spur_3.1.40.gff3
+assign_positions.py -i NN1.cov -gff Strongylocentrotus_purpuratus.Spur_3.1.40.gff3 -o NN1_assigned.cov -parentFeature mRNA -blockFeature exon -parentId "ID=transcript:" -blockId "Parent=transcript:" -addBlocks three_prime_UTR
+
+
+
+#SPLIT THE TARGET FILE
+
+#### THIS ONE FOR HONEYBEE #######
+
+FILE="methPects_low8_mns.tsv"
+GFF="Apis_mellifera.Amel_4.5.41.gtf"
+
+cut -f 1 $FILE | sort | uniq > uchrs.txt
+
+>assign
+while read chr
+do echo "grep ^${chr} $FILE > ${chr}_sub_${FILE} && \
+grep -w ^${chr} $GFF > ${chr}_sub_${GFF} && \
+assign_positions.py -i ${chr}_sub_${FILE} -gff ${chr}_sub_${GFF} -o ${chr}_sub_${FILE}.assigned -parentFeature transcript -blockFeature exon -parentId \"gene_id \" -blockId \"gene_id \" -addBlocks five_prime_utr,three_prime_utr" >> assign
+done < uchrs.txt
+#####################################
+
+
+#### THIS ONE FOR AIPTAISIA #######
+#this one for aiptaisia
+FILE="methPects_low8_mns.tsv"
+FILE="aiptaisiaMethylKitOutLow5.tsv"
+GFF="GCF_001417965.1_Aiptasia_genome_1.1_genomic.gff"
+
+#get the unique scaffolds in the dataset to be split
+cut -f 1 $FILE | grep -vw "^chr" | sort | uniq > uchrs.txt
+
+#for each of these scaffolds, write out a subfile of the input and the gff, plus the command to run assign_positions.py on those subsets
+#(note, good idea to check this after just a few have been done to be sure it's working)
+>assign
+while read chr
+do echo "${chr}..."
+grep "^${chr}" $FILE > ${chr}_sub_${FILE}
+grep -w "^${chr}" $GFF > ${chr}_sub_${GFF}
+echo "assign_positions.py -i ${chr}_sub_${FILE} -gff ${chr}_sub_${GFF} -o ${chr}_sub_${FILE}.assigned -parentFeature mRNA -blockFeature CDS -parentId \"ID=\" -blockId \"Parent=\"" >> assign
+done < uchrs.txt
+
+#######################################
+
+######## THIS ONE FOR TERMITE #########
+
+FILE="methPects_low3_mns.tsv"
+GFF="GCA_000696155.1_ZooNev1.0_genomic.gff"
+
+
+
+#get the unique scaffolds in the dataset to be split
+cut -f 1 $FILE | grep -vw "^chr" | sort | uniq > uchrs.txt
+
+
+#for each of these scaffolds, write out a subfile of the input and the gff, plus the command to run assign_positions.py on those subsets
+#(note, good idea to check this after just a few have been done to be sure it's working)
+>assign
+while read chr
+do echo "grep ^${chr} $FILE > ${chr}_sub_${FILE} && \
+grep -w ^${chr} $GFF > ${chr}_sub_${GFF} && \
+assign_positions.py -i ${chr}_sub_${FILE} -gff ${chr}_sub_${GFF} -o ${chr}_sub_${FILE}.assigned -parentFeature mRNA -blockFeature exon -parentId \"ID=\" -blockId \"Parent=\"" >> assign
+done < uchrs.txt
+
+launcher_creator.py -n assign -j assign -q normal -N 1 -w 144 -a $allo -e $email -t 4:00:00
+
+
+cat *sub_methPects_low3_mns.tsv.assigned > all_assigned_mns.tsv
+
+
+#######################################
+
+
+###### THIS ONE FOR STYLOPHORA #######
+
+FILE=""
+FILE="methPercents_low10_rep80_mns.tsv"
+GFF="Spis.revised_nopipe.gff"
+
+
+#first remove the pipes from the scaffold strings 
+#(would have been best to do this before mapping but oh well)
+sed -i.bak 's/|/_/' $FILE &
+sed -i.bak 's/|/_/' $GFF &
+
+
+#get the unique scaffolds in the dataset to be split
+cut -f 1 $FILE | grep -vw "^chr" | sort | uniq > uchrs.txt
+
+#for each of these scaffolds, write out a subfile of the input and the gff, plus the command to run assign_positions.py on those subsets
+#(note, good idea to check this after just a few have been done to be sure it's working)
+>assign
+while read chr
+do echo "grep ^${chr} $FILE > ${chr}_sub_${FILE} && \
+grep -w ^${chr} $GFF > ${chr}_sub_${GFF} && \
+assign_positions.py -i ${chr}_sub_${FILE} -gff ${chr}_sub_${GFF} -o ${chr}_sub_${FILE}.assigned -parentFeature mRNA -blockFeature exon -parentId \"ID=\" -blockId \"Parent=\"" >> assign
+done < uchrs.txt
+
+
+#in idev session
+sh makeSubs
+
+
+
+#all covs at once:
+
+for file in *.cov
+do echo "sed 's/|/_/' $file > assign_covs/${file} &"
+done
+
+for FILE in *.cov
+do echo "cut -f 1 $FILE | grep -vw \"^chr\" | sort | uniq > ${FILE}_uchrs.txt &"
+done
+
+cat *_uchrs.txt | sort | uniq > uchrs.txt
+
+#make the gff subs
+GFF="Spis.revised_nopipe.gff"
+while read chr
+do echo "$chr"
+grep -w ^${chr} $GFF > ${chr}_sub_${GFF}
+done < uchrs.txt
+
+
+GFF="Spis.revised_nopipe.gff"
+>assign
+while read chr
+do for FILE in *.cov
+do echo "grep ^${chr} $FILE > ${chr}_sub_${FILE} && \
+assign_positions.py -i ${chr}_sub_${FILE} -gff ${chr}_sub_${GFF} -o ${chr}_sub_${FILE}.assigned -parentFeature mRNA -blockFeature exon -parentId \"ID=\" -blockId \"Parent=\"" >> assign
+done
+done < uchrs.txt
+
+
+#####################################
+
+
+##############################################
+############### GET GBM STATS ################
+##############################################
+
+gbm_from_means.R --infile all_assigned_mns.tsv --mcol 4 --mcut 2 --outPrefix all_GBM_res
+
+
+
+
+
+
+
+##############################################
+######## GET ANSWER FROM MANIS TABLES ########
+##############################################
+#download the cov tables from here: https://github.com/lyijin/spis_dna_meth/
+
+#reduce them to only gene stuff
+for file in *.cov
+do echo $file
+grep -v "no_info" $file | grep -v intergenic > ../${file}
+done
+
+
+#get the fractional methylation levels and mean differences
+runMyR gather_seasaw_data.R
+
+
+
+
+
+
+
+
+
+
+###########------------ OLD JUNK:
+
+
+#making subsets to test stuff
+
+>subDiff.tsv
+while read chr; do echo "${chr}..."
+grep -w $chr aiptaisiaMethylKitOutLow5_assigned.tsv >> subDiff.tsv
+done < tenu.txt 
+
+
+>subMean.tsv
+while read chr; do echo "${chr}..."
+grep -w $chr mnMethPct_assigned.tsv >> subMean.tsv
+done < tenu.txt 
+
+
+
+#get gbM values
+
+runMyR gbm_means.R --infile mnMethPct_assigned.tsv --outPrefix mnGbmMethPct
+
+
+
+
+>assign
+while read chr
+do echo "assign_positions.py -i ${chr}_sub_${FILE} -gff ${chr}_sub_${GFF} -o ${chr}_sub_${FILE}.assigned -parentFeature mRNA -blockFeature CDS -parentId \"ID=\" -blockId \"Parent=\"" >> assign
+done < uchrs.txt
+
+
+
+
+#build a 12-column bed file from gff
+gff_to_bed12.py -gff Mus_musculus.GRCm38.93.chromosome.4.gff3 -o testOut.bed
+
+
+
+#Assign differential methylation from methylKit.R to genes:
+assign_cpg_to_genes.R fullDatasetTestOut.tsv Spis.revised.gff gene "ID" fullDataset_geneLabeled.tsv 
+
+
+
+
+
+#for just a subset
+grep "Spis.scaffold1" Spis.revised.gff > subset.gff
+grep "Spis.scaffold1" fullDatasetTestOut.tsv > subset.tsv
+assign_cpg_to_genes.R subset.tsv subset.gff gene "ID" subsetGenes.txt
+
+
+
+
+#assign CpGs to gene freatures for all cov files (NOT A GOOD WAY TO DO THIS!)
+>doAssign
+for file in *.cov
+do echo "assign_cpg_to_genes.R $file Spis.revised.gff gene ID ${file/_1.trim_bismark_bt2_pe.bismark.cov/}_methByGene.tsv" >> doAssign
+done
+
+
+
+
+

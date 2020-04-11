@@ -1,0 +1,13 @@
+all	nonSym	cladeA	cladeB	cladeC	cladeD
+409	0	2	4	401	2	A1_rna_symbiont_counts.txt
+391	0	3	11	377	0	A2_rna_symbiont_counts.txt
+380	0	16	19	329	16	A3_rna_symbiont_counts.txt
+340	0	9	13	312	6	A4_rna_symbiont_counts.txt
+386	0	6	9	369	2	A5_rna_symbiont_counts.txt
+528	0	6	7	513	2	A6_rna_symbiont_counts.txt
+1274	0	7	875	380	12	S1_rna_symbiont_counts.txt
+1423	0	5	1029	374	15	S2_rna_symbiont_counts.txt
+865	0	272	235	354	4	S3_rna_symbiont_counts.txt
+1026	0	327	224	451	24	S4_rna_symbiont_counts.txt
+1508	0	82	871	547	8	S5_rna_symbiont_counts.txt
+1720	0	1002	342	374	2	S6_rna_symbiont_counts.txt

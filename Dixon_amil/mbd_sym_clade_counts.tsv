@@ -1,0 +1,17 @@
+all	nonSym	cladeA	cladeB	cladeC	cladeD
+2523	0	1	0	2520	2	m-L5-s1_S1_symbiont_counts.txt
+3011	0	1	0	3010	0	m-L5-s2_S2_symbiont_counts.txt
+1510	0	0	0	1510	0	m-L5-t1_S3_symbiont_counts.txt
+1907	0	1	0	1906	0	m-L5-t2_S4_symbiont_counts.txt
+2203	0	0	0	2201	2	m-N12-s1_S5_symbiont_counts.txt
+2130	0	1	0	2128	1	m-N12-s2_S6_symbiont_counts.txt
+2415	0	5	0	2405	5	m-N12-t1_S7_symbiont_counts.txt
+2262	0	2	1	2257	2	m-N12-t2_S8_symbiont_counts.txt
+249	0	1	0	248	0	ub-L5-s1_S9_symbiont_counts.txt
+319	0	1	0	318	0	ub-L5-s2_S10_symbiont_counts.txt
+161	0	1	0	160	0	ub-L5-t1_S11_symbiont_counts.txt
+242	0	2	0	239	1	ub-L5-t2_S12_symbiont_counts.txt
+443	0	1	0	442	0	ub-N12-s1_S13_symbiont_counts.txt
+551	0	0	0	550	1	ub-N12-s2_S14_symbiont_counts.txt
+230	0	0	1	223	6	ub-N12-t1_S15_symbiont_counts.txt
+208	0	1	2	201	4	ub-N12-t2_S16_symbiont_counts.txt

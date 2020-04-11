@@ -1,0 +1,25 @@
+all	nonSym	cladeA	cladeB	cladeC	cladeD
+3317	0	0	0	3316	1	mrF-L5-s1_S10_symbiont_counts.txt
+5468	0	1	0	5466	1	mrF-L5-s2_S11_symbiont_counts.txt
+11769	0	1	0	11767	1	mrF-L5-s3_S12_symbiont_counts.txt
+4728	0	0	1	4727	0	mrF-L5-t1_S7_symbiont_counts.txt
+7613	0	2	0	7611	0	mrF-L5-t2_S8_symbiont_counts.txt
+6958	0	0	0	6958	0	mrF-L5-t3_S9_symbiont_counts.txt
+9406	0	0	0	9402	4	mrF-N12-s1_S4_symbiont_counts.txt
+15048	0	0	0	15048	0	mrF-N12-s2_S5_symbiont_counts.txt
+16584	0	0	0	16584	0	mrF-N12-s3_S6_symbiont_counts.txt
+14454	0	0	0	14453	1	mrF-N12-t1_S1_symbiont_counts.txt
+13681	0	1	0	13680	0	mrF-N12-t2_S2_symbiont_counts.txt
+9387	0	2	1	9384	0	mrF-N12-t3_S3_symbiont_counts.txt
+1752	0	3	0	1745	4	mrM-L5-s1_S22_symbiont_counts.txt
+2831	0	1	0	2828	2	mrM-L5-s2_S23_symbiont_counts.txt
+4430	0	2	0	4426	2	mrM-L5-s3_S24_symbiont_counts.txt
+1760	0	2	0	1755	3	mrM-L5-t1_S19_symbiont_counts.txt
+2783	0	3	0	2779	1	mrM-L5-t2_S20_symbiont_counts.txt
+3110	0	0	0	3108	2	mrM-L5-t3_S21_symbiont_counts.txt
+3435	0	0	0	3434	1	mrM-N12-s1_S16_symbiont_counts.txt
+5475	0	0	0	5470	5	mrM-N12-s2_S17_symbiont_counts.txt
+4666	0	2	0	4661	3	mrM-N12-s3_S18_symbiont_counts.txt
+5411	0	3	1	5402	5	mrM-N12-t1_S13_symbiont_counts.txt
+5753	0	2	0	5747	4	mrM-N12-t2_S14_symbiont_counts.txt
+3426	0	3	0	3420	3	mrM-N12-t3_S15_symbiont_counts.txt
